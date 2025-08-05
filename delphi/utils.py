@@ -1,7 +1,9 @@
 from typing import Any, TypeVar, cast
 
+import datasets
 import numpy as np
 import torch
+from datasets.table import table_iter
 from torch import Tensor
 from transformers import PreTrainedTokenizer, PreTrainedTokenizerFast
 
@@ -14,10 +16,23 @@ def load_tokenized_data(
     dataset_name: str = "",
     column_name: str = "text",
     seed: int = 22,
+    convert_to_tensor_chunk_size: int = 2**18,
 ):
     """
     Load a huggingface dataset, tokenize it, and shuffle.
     Using this function ensures we are using the same tokens everywhere.
+
+    Args:
+        ctx_len: The context length of the tokens.
+        tokenizer: The tokenizer to use.
+        dataset_repo: The repository of the dataset.
+        dataset_split: The split of the dataset.
+        dataset_name: The name of the dataset.
+        column_name: The name of the column to tokenize.
+        seed: The seed to use for shuffling the dataset.
+        convert_to_tensor_chunk_size: The chunk size to use when converting the dataset
+        from Huggingface's Table format to a tensor. Values around 2**17-2**18 seem to
+        be the fastest.
     """
     from datasets import load_dataset
     from sparsify.data import chunk_and_tokenize
@@ -32,6 +47,16 @@ def load_tokenized_data(
     )
 
     tokens = tokens_ds["input_ids"]
+
+    if isinstance(tokens, datasets.Column):
+        tokens = torch.cat(
+            [
+                torch.from_numpy(np.stack(table_chunk["input_ids"].to_numpy(), axis=0))
+                for table_chunk in table_iter(
+                    tokens.source._data, convert_to_tensor_chunk_size
+                )
+            ]
+        )
 
     return tokens
 
