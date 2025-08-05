@@ -48,11 +48,15 @@ def load_tokenized_data(
 
     try:
         from datasets import Column
+
         if isinstance(tokens, Column):
             from datasets.table import table_iter
+
             tokens = torch.cat(
                 [
-                    torch.from_numpy(np.stack(table_chunk["input_ids"].to_numpy(), axis=0))
+                    torch.from_numpy(
+                        np.stack(table_chunk["input_ids"].to_numpy(), axis=0)
+                    )
                     for table_chunk in table_iter(
                         tokens.source._data, convert_to_tensor_chunk_size
                     )
