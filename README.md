@@ -16,7 +16,7 @@ Install this library as a local editable installation. Run the following command
 
 To run the default pipeline from the command line, use the following command:
 
-`python -m delphi meta-llama/Meta-Llama-3-8B EleutherAI/sae-llama-3-8b-32x --n_tokens 10_000_000 --max_latents 100 --hookpoints layers.5 --scorers detection --filter_bos --name llama-3-8B`
+`python -m delphi EleutherAI/pythia-160m EleutherAI/Pythia-160m-SST-k32-32k --n_tokens 10_000_000 --max_latents 100 --hookpoints layers.5 --scorers detection --filter_bos --name llama-3-8B`
 
 This command will:
 1. Cache activations for the first 10 million tokens of the default dataset, `EleutherAI/SmolLM2-135M-10B`.
