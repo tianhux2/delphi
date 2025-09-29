@@ -167,7 +167,7 @@ class RunConfig(Serializable):
     max_latents: int | None = None
     """Maximum number of features to explain for each sparse model."""
 
-    filter_bos: bool = False
+    filter_bos: bool = True
     """Whether to filter out BOS tokens from the cache."""
 
     log_probs: bool = False
