@@ -95,6 +95,8 @@ class InMemoryCache:
         self.filters = filters
         self.batch_size = batch_size
 
+        self.layers = []
+
     def add(
         self,
         latents: latent_tensor_type,
@@ -154,6 +156,9 @@ class InMemoryCache:
             self.tokens[module_path] = torch.cat(
                 self.tokens_batches[module_path], dim=0
             )
+
+            if module_path not in self.layers:
+                self.layers.append(module_path)
 
     def get_nonzeros(self, latents: latent_tensor_type, module_path: str) -> tuple[
         location_tensor_type,
@@ -439,7 +444,7 @@ class LatentCache:
             Defaults to True.
         """
         split_indices = self._generate_split_indices(n_splits)
-        for module_path in self.cache.latent_locations.keys():
+        for module_path in self.cache.layers:
             latent_locations = self.cache.latent_locations[module_path]
             latent_activations = self.cache.latent_activations[module_path]
             tokens = self.cache.tokens[module_path].numpy()
