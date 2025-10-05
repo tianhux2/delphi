@@ -444,7 +444,7 @@ class LatentCache:
             Defaults to True.
         """
         split_indices = self._generate_split_indices(n_splits)
-        for module_path in self.cache.layers:
+        for module_path in self.cache.latent_locations.keys():
             latent_locations = self.cache.latent_locations[module_path]
             latent_activations = self.cache.latent_activations[module_path]
             tokens = self.cache.tokens[module_path].numpy()
@@ -488,7 +488,7 @@ class LatentCache:
                 save_file(split_data, output_file)
 
     def merge_and_concat_safetensors(self, save_dir: Path):
-        for module_path in self.cache.latent_locations.keys():
+        for module_path in self.cache.layers:
             module_dir = save_dir / module_path
 
             files = list(module_dir.glob("*.safetensors"))
