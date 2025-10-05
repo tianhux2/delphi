@@ -340,7 +340,10 @@ def populate_cache(
     cache.run(cache_cfg.n_tokens, tokens, cache_cfg.max_batch_number_per_store, cache_cfg.n_splits, latents_path)
 
     if run_cfg.verbose:
-        cache.generate_statistics_cache()
+        if cache_cfg.max_batch_number_per_store == -1:
+            cache.generate_statistics_cache()
+        else:
+            logger.info("Cache statistics cannot be run due to block storage")
 
     if cache_cfg.max_batch_number_per_store == -1:
         cache.save_splits(

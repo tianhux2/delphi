@@ -8,8 +8,7 @@ import re
 import numpy as np
 import torch
 from jaxtyping import Float, Int
-from safetensors.numpy import save_file
-from safetensors import safe_open
+from safetensors.numpy import save_file, load_file
 from torch import Tensor
 from tqdm import tqdm
 from transformers import PreTrainedModel
@@ -499,20 +498,29 @@ class LatentCache:
 
             for prefix, file_list in groups.items():
                 file_list.sort(key=lambda x: int(pattern.match(x.name).group("index")))
-                all_keys = ['activations', 'locations', 'tokens']
 
-                merged_tensors = {}
+                locations = np.empty((0, 3), dtype=np.uint16)
+                activations = np.empty(0, dtype=np.float16)
+                tokens = None
+                for file_path in file_list:
+                    data = load_file(file_path)
+                    locations = np.concatenate([locations, data["locations"]])
+                    activations = np.concatenate([activations, data["activations"]])
+                    if "tokens" in data:
+                        if tokens is None:
+                            tokens = data["tokens"]
+                        else:
+                            tokens = np.concatenate([tokens, data["tokens"]])
 
-                for key in all_keys:
-                    tensors = []
-                    for file_path in file_list:
-                        with safe_open(file_path, framework="pt", device="cpu") as f:
-                            tensors.append(f.get_tensor(key))
-                    concatenated = torch.cat(tensors, dim=0)
-                    merged_tensors[key] = concatenated
+                split_data = {
+                    "locations": locations,
+                    "activations": activations,
+                }
+                if tokens is not None:
+                    split_data["tokens"] = tokens
 
                 output_path = module_dir / f"{prefix}.safetensors"
-                save_file(merged_tensors, output_path)
+                save_file(split_data, output_path)
 
                 for file_path in file_list:
                     file_path.unlink()
