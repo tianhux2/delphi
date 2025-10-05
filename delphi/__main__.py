@@ -337,17 +337,18 @@ def populate_cache(
         transcode=transcode,
         log_path=log_path,
     )
-    cache.run(cache_cfg.n_tokens, tokens)
+    cache.run(cache_cfg.n_tokens, tokens, cache_cfg.max_batch_number_per_store, cache_cfg.n_splits, latents_path)
 
     if run_cfg.verbose:
         cache.generate_statistics_cache()
 
-    cache.save_splits(
-        # Split the activation and location indices into different files to make
-        # loading faster
-        n_splits=cache_cfg.n_splits,
-        save_dir=latents_path,
-    )
+    if cache_cfg.max_batch_number_per_store == -1:
+        cache.save_splits(
+            # Split the activation and location indices into different files to make
+            # loading faster
+            n_splits=cache_cfg.n_splits,
+            save_dir=latents_path,
+        )
 
     cache.save_config(save_dir=latents_path, cfg=cache_cfg, model_name=run_cfg.model)
 

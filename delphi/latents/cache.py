@@ -3,11 +3,13 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 import numpy as np
 import torch
 from jaxtyping import Float, Int
 from safetensors.numpy import save_file
+from safetensors import safe_open
 from torch import Tensor
 from tqdm import tqdm
 from transformers import PreTrainedModel
@@ -120,6 +122,22 @@ class InMemoryCache:
         self.latent_locations_batches[module_path].append(latent_locations)
         self.latent_activations_batches[module_path].append(latent_activations)
         self.tokens_batches[module_path].append(tokens)
+
+    def clear(self):
+        """
+        Clear all cached data.
+        """
+        self.latent_locations_batches: dict[str, list[location_tensor_type]] = (
+            defaultdict(list)
+        )
+        self.latent_activations_batches: dict[str, list[latent_tensor_type]] = (
+            defaultdict(list)
+        )
+        self.tokens_batches: dict[str, list[token_tensor_type]] = defaultdict(list)
+
+        self.latent_locations: dict[str, location_tensor_type] = {}
+        self.latent_activations: dict[str, latent_tensor_type] = {}
+        self.tokens: dict[str, token_tensor_type] = {}
 
     def save(self):
         """
@@ -252,15 +270,22 @@ class LatentCache:
                 ]
         self.hookpoint_to_sparse_encode = filtered_submodules
 
-    def run(self, n_tokens: int, tokens: token_tensor_type):
+    def run(self, n_tokens: int, tokens: token_tensor_type, max_batch_number_per_store :int = -1, n_splits: int = 0, save_dir: Path = None, save_tokens: bool = True):
         """
         Run the latent caching process.
 
         Args:
             n_tokens: Total number of tokens to process.
             tokens: Input tokens.
+            max_batch_number_per_store: Maximum number of batches to store in cache.
+            n_splits: Number of splits to generate.
+            save_dir: Directory to save the splits.
+            save_tokens: Whether to save the dataset tokens used to generate the cache.
+            Defaults to True.
         """
         token_batches = self.load_token_batches(n_tokens, tokens)
+
+        max_stored_batch_number = 0
 
         total_tokens = 0
         total_batches = len(token_batches)
@@ -295,12 +320,21 @@ class LatentCache:
                                     hookpoint
                                 ] += firing_counts.cpu()
 
+                if max_batch_number_per_store != -1 and (batch_number + 1) % max_batch_number_per_store == 0:
+                    self.cache.save()
+                    self.save_part_splits(n_splits, save_dir, max_stored_batch_number, save_tokens)
+                    self.cache.clear()
+                    max_stored_batch_number += 1
+
                 # Update the progress bar
                 pbar.update(1)
                 pbar.set_postfix({"Total Tokens": f"{total_tokens:,}"})
 
         logger.info(f"Total tokens processed: {total_tokens:,}")
         self.cache.save()
+        if max_batch_number_per_store != -1 and total_batches % max_batch_number_per_store != 0:
+            self.save_part_splits(n_splits, save_dir, max_stored_batch_number, save_tokens)
+            self.merge_and_concat_safetensors(save_dir)
         self.save_firing_counts()
 
     def save(self, save_dir: Path, save_tokens: bool = True):
@@ -393,6 +427,95 @@ class LatentCache:
                     split_data["tokens"] = tokens
 
                 save_file(split_data, output_file)
+
+    def save_part_splits(self, n_splits: int, save_dir: Path, part_num :int, save_tokens: bool = True):
+        """
+        Save the cached non-zero latent activations and locations in splits.
+        Args:
+            n_splits: Number of splits to generate.
+            save_dir: Directory to save the splits.
+            part_num: Part number.
+            save_tokens: Whether to save the dataset tokens used to generate the cache.
+            Defaults to True.
+        """
+        split_indices = self._generate_split_indices(n_splits)
+        for module_path in self.cache.latent_locations.keys():
+            latent_locations = self.cache.latent_locations[module_path]
+            latent_activations = self.cache.latent_activations[module_path]
+            tokens = self.cache.tokens[module_path].numpy()
+
+            latent_indices = latent_locations[:, 2]
+
+            for start, end in split_indices:
+                mask = (latent_indices >= start) & (latent_indices <= end)
+
+                masked_activations = latent_activations[mask].half().numpy()
+
+                masked_locations = latent_locations[mask].numpy()
+
+                # Optimization to reduce the max value to enable a smaller dtype
+                masked_locations[:, 2] = masked_locations[:, 2] - start.item()
+
+                if (
+                    masked_locations[:, 2].max() < 2**16
+                    and masked_locations[:, 0].max() < 2**16
+                ):
+                    masked_locations = masked_locations.astype(np.uint16)
+                else:
+                    masked_locations = masked_locations.astype(np.uint32)
+                    logger.warning(
+                        "Increasing the number of splits might reduce the"
+                        "memory usage of the cache."
+                    )
+
+                module_dir = save_dir / module_path
+                module_dir.mkdir(parents=True, exist_ok=True)
+
+                output_file = module_dir / f"{start}_{end}_{part_num}.safetensors"
+
+                split_data = {
+                    "locations": masked_locations,
+                    "activations": masked_activations,
+                }
+                if save_tokens:
+                    split_data["tokens"] = tokens
+
+                save_file(split_data, output_file)
+
+    def merge_and_concat_safetensors(self, save_dir: Path):
+        for module_path in self.cache.latent_locations.keys():
+            module_dir = save_dir / module_path
+
+            files = list(module_dir.glob("*.safetensors"))
+
+            pattern = re.compile(r"^(?P<prefix>.+?)_(?P<index>\d+)\.safetensors$")
+            groups = defaultdict(list)
+
+            for file in files:
+                match = pattern.match(file.name)
+                if match:
+                    prefix = match.group("prefix")
+                    groups[prefix].append(file)
+
+            for prefix, file_list in groups.items():
+                file_list.sort(key=lambda x: int(pattern.match(x.name).group("index")))
+                all_keys = ['activations', 'locations', 'tokens']
+
+                merged_tensors = {}
+
+                for key in all_keys:
+                    tensors = []
+                    for file_path in file_list:
+                        with safe_open(file_path, framework="pt", device="cpu") as f:
+                            tensors.append(f.get_tensor(key))
+                    concatenated = torch.cat(tensors, dim=0)
+                    merged_tensors[key] = concatenated
+
+                output_path = module_dir / f"{prefix}.safetensors"
+                save_file(merged_tensors, output_path)
+
+                for file_path in file_list:
+                    file_path.unlink()
 
     def generate_statistics_cache(self):
         """

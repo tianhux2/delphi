@@ -94,6 +94,9 @@ class CacheConfig(Serializable):
     n_tokens: int = 10_000_000
     """Number of tokens to cache."""
 
+    max_batch_number_per_store: int = -1
+    """Maximum number of batches per store."""
+
     n_splits: int = 5
     """Number of splits to divide .safetensors into."""
 
