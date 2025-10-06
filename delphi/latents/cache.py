@@ -558,7 +558,7 @@ class LatentCache:
             cfg: Configuration object.
             model_name: Name of the model.
         """
-        for module_path in self.cache.latent_locations.keys():
+        for module_path in self.cache.layers:
             config_file = save_dir / module_path / "config.json"
             with open(config_file, "w") as f:
                 config_dict = cfg.to_dict()
