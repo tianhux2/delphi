@@ -339,6 +339,7 @@ class LatentCache:
         if max_batch_number_per_store != -1 and total_batches % max_batch_number_per_store != 0:
             self.save_part_splits(n_splits, save_dir, max_stored_batch_number, save_tokens)
             self.cache.clear()
+        if max_batch_number_per_store != -1:
             self.merge_and_concat_safetensors(save_dir)
         self.save_firing_counts()
 
